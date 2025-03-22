@@ -1,0 +1,100 @@
+prisma
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  firstName String   @map("first_name")
+  lastName  String   @map("last_name")
+  role      Role     @default(customer)
+  createdAt DateTime @default(now()) @map("created_at")
+  
+  carts  Cart[]
+  orders Order[]
+  @@map("users")
+}
+model Product {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String
+  price       Decimal  @db.Decimal(10, 2)
+  imageUrl    String?  @map("image_url")
+  stock       Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+  
+  cartItems   CartItem[]
+  orderItems  OrderItem[]
+  @@map("products")
+}
+model Cart {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+  
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items CartItem[]
+  @@map("carts")
+}
+model CartItem {
+  id        Int      @id @default(autoincrement())
+  cartId    Int      @map("cart_id")
+  productId Int      @map("product_id")
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+  
+  cart    Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  @@map("cart_items")
+}
+model Order {
+  id              Int       @id @default(autoincrement())
+  userId          Int       @map("user_id")
+  status          OrderStatus @default(pending)
+  total           Decimal   @db.Decimal(10, 2)
+  shippingAddress String    @map("shipping_address")
+  billingAddress  String    @map("billing_address")
+  paymentMethod   String    @map("payment_method")
+  isPaid          Boolean   @default(false) @map("is_paid")
+  paidAt          DateTime? @map("paid_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
+  
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items OrderItem[]
+  @@map("orders")
+}
+model OrderItem {
+  id        Int      @id @default(autoincrement())
+  orderId   Int      @map("order_id")
+  productId Int      @map("product_id")
+  name      String
+  price     Decimal  @db.Decimal(10, 2)
+  quantity  Int
+  createdAt DateTime @default(now()) @map("created_at")
+  
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  @@map("order_items")
+}
+enum Role {
+  admin
+  customer
+}
+enum OrderStatus {
+  pending
+  processing
+  shipped
+  delivered
+  cancelled
+}

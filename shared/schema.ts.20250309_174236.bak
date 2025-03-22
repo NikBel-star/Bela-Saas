@@ -1,0 +1,190 @@
+import { z } from 'zod';
+import type { User as PrismaUser, Product as PrismaProduct, Cart as PrismaCart, CartItem as PrismaCartItem, Order as PrismaOrder, OrderItem as PrismaOrderItem } from '@prisma/client';
+
+// User table
+export const users = pgTable('users', {
+  id: serial('id').primaryKey(),
+  email: text('email').notNull().unique(),
+  password: text('password').notNull(),
+  firstName: text('first_name').notNull(),
+  lastName: text('last_name').notNull(),
+  role: text('role', { enum: ['admin', 'customer'] }).default('customer').notNull(),
+  createdAt: timestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+// User relations
+export const usersRelations = relations(users, ({ many }) => ({
+  carts: many(carts),
+  orders: many(orders),
+}));
+
+// Product table
+export const products = pgTable('products', {
+  id: serial('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description').notNull(),
+  price: decimal('price', { precision: 10, scale: 2 }).notNull(),
+  imageUrl: text('image_url'),
+  stock: integer('stock').default(0).notNull(),
+  createdAt: timestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+// Product relations
+export const productsRelations = relations(products, ({ many }) => ({
+  cartItems: many(cartItems),
+  orderItems: many(orderItems),
+}));
+
+// Cart table
+export const carts = pgTable('carts', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+// Cart relations
+export const cartsRelations = relations(carts, ({ one, many }) => ({
+  user: one(users, {
+    fields: [carts.userId],
+    references: [users.id],
+  }),
+  items: many(cartItems),
+}));
+
+// Cart item table
+export const cartItems = pgTable('cart_items', {
+  id: serial('id').primaryKey(),
+  cartId: integer('cart_id').notNull().references(() => carts.id, { onDelete: 'cascade' }),
+  productId: integer('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  quantity: integer('quantity').default(1).notNull(),
+  createdAt: timestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+// Cart item relations
+export const cartItemsRelations = relations(cartItems, ({ one }) => ({
+  cart: one(carts, {
+    fields: [cartItems.cartId],
+    references: [carts.id],
+  }),
+  product: one(products, {
+    fields: [cartItems.productId],
+    references: [products.id],
+  }),
+}));
+
+// Order table
+export const orders = pgTable('orders', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  status: text('status', { 
+    enum: ['pending', 'processing', 'shipped', 'delivered', 'cancelled'] 
+  }).default('pending').notNull(),
+  total: decimal('total', { precision: 10, scale: 2 }).notNull(),
+  shippingAddress: text('shipping_address').notNull(),
+  billingAddress: text('billing_address').notNull(),
+  paymentMethod: text('payment_method').notNull(),
+  isPaid: boolean('is_paid').default(false).notNull(),
+  paidAt: timestamp('paid_at'),
+  createdAt: timestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+// Order relations
+export const ordersRelations = relations(orders, ({ one, many }) => ({
+  user: one(users, {
+    fields: [orders.userId],
+    references: [users.id],
+  }),
+  items: many(orderItems),
+}));
+
+// Order item table
+export const orderItems = pgTable('order_items', {
+  id: serial('id').primaryKey(),
+  orderId: integer('order_id').notNull().references(() => orders.id, { onDelete: 'cascade' }),
+  productId: integer('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  price: decimal('price', { precision: 10, scale: 2 }).notNull(),
+  quantity: integer('quantity').notNull(),
+  createdAt: timestamp('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+// Order item relations
+export const orderItemsRelations = relations(orderItems, ({ one }) => ({
+  order: one(orders, {
+    fields: [orderItems.orderId],
+    references: [orders.id],
+  }),
+  product: one(products, {
+    fields: [orderItems.productId],
+    references: [products.id],
+  }),
+}));
+
+// Insert schemas
+export const insertUserSchema = createInsertSchema(users)
+  .extend({
+    email: z.string().email(),
+    firstName: z.string().min(2).max(50),
+    lastName: z.string().min(2).max(50),
+    role: z.enum(['admin', 'customer']).optional()
+  })
+  .omit({ id: true, createdAt: true });
+
+export const insertProductSchema = createInsertSchema(products)
+  .extend({
+    name: z.string().min(3).max(100),
+    description: z.string().min(10),
+    price: z.string().refine((val) => parseFloat(val) > 0, { message: 'Price must be greater than 0' }),
+    stock: z.number().int().min(0).optional()
+  })
+  .omit({ id: true, createdAt: true, updatedAt: true });
+
+export const insertCartSchema = createInsertSchema(carts)
+  .omit({ id: true, createdAt: true, updatedAt: true });
+
+export const insertCartItemSchema = createInsertSchema(cartItems)
+  .extend({
+    quantity: z.number().int().min(1).optional()
+  })
+  .omit({ id: true, createdAt: true, updatedAt: true });
+
+export const insertOrderSchema = createInsertSchema(orders)
+  .extend({
+    total: z.string().refine((val) => parseFloat(val) >= 0, { message: 'Total must be non-negative' }),
+    shippingAddress: z.string().min(5),
+    billingAddress: z.string().min(5),
+    paymentMethod: z.string().min(3),
+    status: z.enum(['pending', 'processing', 'shipped', 'delivered', 'cancelled']).optional()
+  })
+  .omit({ id: true, createdAt: true, updatedAt: true, paidAt: true });
+
+export const insertOrderItemSchema = createInsertSchema(orderItems)
+  .extend({
+    name: z.string().min(3).max(100),
+    price: z.string().refine((val) => parseFloat(val) > 0, { message: 'Price must be greater than 0' }),
+    quantity: z.number().int().min(1)
+  })
+  .omit({ id: true, createdAt: true });
+
+// Type definitions
+export type User = typeof users.$inferSelect;
+export type InsertUser = z.infer<typeof insertUserSchema>;
+
+export type Product = typeof products.$inferSelect;
+export type InsertProduct = z.infer<typeof insertProductSchema>;
+
+export type Cart = typeof carts.$inferSelect;
+export type InsertCart = z.infer<typeof insertCartSchema>;
+
+export type CartItem = typeof cartItems.$inferSelect;
+export type InsertCartItem = z.infer<typeof insertCartItemSchema>;
+
+export type Order = typeof orders.$inferSelect;
+export type InsertOrder = z.infer<typeof insertOrderSchema>;
+
+export type OrderItem = typeof orderItems.$inferSelect;
+export type InsertOrderItem = z.infer<typeof insertOrderItemSchema>;
